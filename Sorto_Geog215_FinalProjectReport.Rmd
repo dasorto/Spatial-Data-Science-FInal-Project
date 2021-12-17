@@ -1,0 +1,230 @@
+---
+title: "Severity of Car Traffic Accidents in Orange County in North Carolina"
+author: "Alex Sorto"
+date: "12/5/2021"
+output: 
+  html_document:
+    theme: paper
+    toc: yes
+    toc_float: yes
+    code_folding: show
+---
+
+
+### Introduction
+
+It is important to determine how safe roads are in Orange County in North Carolina, and visualizations help address this issue. Not only is traffic affected, but most importantly, the safety of the county's population. The objective of this study is to identify areas with more traffic accidents in Orange County, visualize those areas and determine whether factors such as population concentration are correlated with accidents. Through statistics, this study will answer the research questions below.
+
+***   
+
+### Research Questions
+
+1. How severe are traffic accidents in Orange County?
+
+Method: Create a table and histogram showing statistics of this variable.
+
+
+***   
+
+### Data Preparation
+
+#### Sources:
+
+[CSV of traffic accidents in NC would focus on](https://www.kaggle.com/sobhanmoosavi/us-accidents)
+I would use this source to use longitude and latitude points to plot in my map.
+[North Carolina layer shapefile](https://www.nconemap.gov/datasets/NCDOT::ncdot-city-boundaries/explore?location=38.662466%2C-73.840143%2C6.76)
+I would use this source for the layer/shapefile for the map to make a choropleth potentially.
+[North Carolina layer shapefile](https://data-ncdenr.opendata.arcgis.com/datasets/nc-counties/explore?location=35.154172%2C-79.919249%2C7.94)
+This is another good layer for making a choropleth. 
+
+Roads layer(https://connect.ncdot.gov/resources/gis/pages/gis-data-layers.aspx), census tracts layer(https://connect.ncdot.gov/resources/gis/pages/gis-data-layers.aspx): This layer is used to visualize the accidents better in the choropleth.
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(sf)
+library(tmap)
+library(readxl)
+library(kableExtra)
+library(sp)
+library(spdep)
+library(spatstat)
+library(maptools)
+```
+
+```{r}
+# Read csv dataset of accidents
+accidentsdataset <- read_excel("./Data/OrangeCountyAccidents.xlsx")
+```
+
+
+```{r}
+# Convert csv to points layer
+points <- st_as_sf(accidentsdataset, coords = c("Start_Lat", "Start_Lng"))
+tm_shape(points) + tm_dots ()
+```
+
+#### Additional Information to note
+
+Additionally, Excel was used to filter accidents in Orange County only, as opposed to the country it is in which the dataset included.
+
+***   
+
+### Exploratory Spatial Data Analysis
+
+#### Descriptive Statistics Table
+```{r summarize, warning = FALSE, message = FALSE}
+# Create summary information holder
+summary.table <- tibble(Measure = c("Observations",
+                                    "Minimum",
+                                    "Maximum",
+                                    "Mean",
+                                    "Median",
+                                    "Standard Deviation"),
+                        Cases = c(sum(!is.na(accidentsdataset$`Severity`)),
+                                       min(accidentsdataset$`Severity`, na.rm = TRUE),
+                                       max(accidentsdataset$`Severity`, na.rm = TRUE),
+                                       mean(accidentsdataset$`Severity`, na.rm = TRUE),
+                                       median(accidentsdataset$`Severity`, na.rm = TRUE),
+                                       sd(accidentsdataset$`Severity`, na.rm = TRUE)
+                                       )
+                        
+                                      
+                        )
+
+## Print nice version of the table
+kable(summary.table, 
+      digits = 1,
+      format.args = list(big.mark = ",",
+                         scientific = FALSE,
+                         drop0trailing = TRUE),
+      caption = "Severity
+
+Shows the severity of the accident, a number between 1 and 4, where 1 indicates the least impact on traffic (i.e., short delay ") %>% 
+  kable_styling(bootstrap_options = c("striped", 
+                                      "hover", 
+                                      "condensed", 
+                                      "responsive"), 
+                full_width = F)
+
+
+```
+
+There are 205 observations in the dataset and the mean is 2.3 while the median is 2 in the scale of severity. There is some variation in the severity, shown with the standard deviation.
+
+### Create a Histogram or Plot
+
+```{r histogram1, warning = FALSE, message = FALSE, fig.width = 7, fig.height = 4}
+## plot histogram
+ggplot(accidentsdataset, 
+       aes(x = `Severity`)) + 
+  geom_histogram(binwidth = 0.5) +
+  xlab("Severity
+
+Shows the severity of the accident, a number between 1 and 4, where 1 indicates the least impact on traffic (i.e., short delay).") +
+  ggtitle("Histogram of the Severity of each Car Traffic Accident in Orange County") +
+  theme_minimal()
+
+```
+
+The histogram shows severity is mostly concentrated in the 2 values, and there are some accidents that had 3 and 4 severity values. This relates to this study since one can determine the safety of the roads in the county; overall, most accidents are not severe.
+
+***
+
+### Geographic Distribution and Spatial Clustering
+```{r}
+orangecounty <- st_read("./Data/dissolved_orangecounty.shp", quiet = TRUE)
+
+orangecounty.projected <- st_transform(orangecounty,
+                        crs = 32119)
+
+points.projected <- st_set_crs(points,
+                        32119)
+
+points.ppp <- as(points.projected, "Spatial") %>% as("ppp")
+
+## Note that these are UNMARKED points
+marks(points.ppp) <- NULL
+
+
+
+## Provide it with the Orange County STUDY AREA bounds as a window
+Window(points.ppp) <- as(orangecounty.projected, "Spatial") %>% as("owin")
+
+## Plot the layer to ensure that the boundary is properly defined 
+plot(points.ppp, 
+     main = NULL, 
+     cols = rgb(0, 0, 0, 0.5), 
+     pch = 20)
+
+points.ppp.quadrat <- quadratcount(points.ppp, nx = 10, ny = 10)
+
+## Plot the layer with quadrat counts
+plot(points.ppp, 
+     main = NULL, 
+     cols = "grey70", 
+     pch = 20)
+plot(points.ppp.quadrat, 
+     add = TRUE, 
+     cex = 0.75)
+
+points.ppp.quadrat.test <- quadrat.test(points.ppp,
+                                         nx = 5,
+                                         ny = 5)
+
+
+## Calculate and print Variance to Mean Ratio
+points.ppp.VMR <- var(points.ppp.quadrat.test$observed) / mean(points.ppp.quadrat.test$observed)
+points.ppp.VMR
+
+## Print test results to screen
+points.ppp.quadrat.test
+
+## Remember the warning about expected counts?
+## Let's increase the size of that quadrats to increase
+## the number of Fire Stations in each
+## We will use twice as many rows as columns, given data shape
+points.ppp.quadrat <- quadratcount(points.ppp, 
+                                    nx = 4, 
+                                    ny = 4)
+
+## Plot the quadrat counts
+plot(points.ppp.quadrat, 
+     cex = 0.75)
+
+points.ppp.quadrat.test <- quadrat.test(points.ppp,
+                                         nx = 4,
+                                         ny = 4)
+
+## Calculate and print Variance to Mean Ratio
+points.ppp.VMR <- var(points.ppp.quadrat.test$observed) / mean(points.ppp.quadrat.test$observed)
+points.ppp.VMR
+
+## Print test results to screen
+points.ppp.quadrat.test
+
+
+```
+
+#### Layers of Orange County and Car accidents used for Quadrat Analysis:
+
+```{r}
+tm_shape(points.projected) + tm_dots()
+tm_shape(orangecounty) +tm_polygons()
+```
+
+***
+
+### Conclusion
+
+This study shows that while there have been accidents in Orange County, most are not severe according to the 1-4 scale. Most traffic accidents are categorized as 2 on the severity scale. Aside from the statistics shown, a quadrat analysis was conducted to study the dispersion of traffic accidents.
+
+***
+
+#### Document Statistics
+
+#### Word Count
+```{r, echo = FALSE, message = FALSE}
+wordcountaddin:::text_stats()
+```
